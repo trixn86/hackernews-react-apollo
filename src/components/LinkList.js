@@ -1,7 +1,11 @@
 import React, { Component } from 'react';
-import Link from './Link';
 import gql from 'graphql-tag';
 import {graphql} from 'react-apollo';
+import sortBy from 'lodash/sortBy';
+
+import {LINKS_PER_PAGE} from '../constants';
+import Link from './Link';
+
 
 class LinkList extends Component {
     componentDidMount() {
@@ -10,7 +14,15 @@ class LinkList extends Component {
     }
 
     _updateCacheAfterVote = (store, createVote, linkId) => {
-        const data = store.readQuery({ query: FEED_QUERY });
+        const {location, match} = this.props;
+
+        const isNewPage = location.pathname.includes('new');
+        const page = parseInt(match.params.page);
+        const skip = isNewPage ? (page - 1) * LINKS_PER_PAGE : 0;
+        const first = isNewPage ? LINKS_PER_PAGE : 100;
+        const orderBy = isNewPage ? 'createdAt_DESC' : null;
+        const data = store.readQuery({ query: FEED_QUERY, variables: { first, skip, orderBy } });
+
         const votedLink = data.feed.links.find(link => link.id === linkId);
         votedLink.votes = createVote.link.votes;
         store.writeQuery({ query: FEED_QUERY, data });
@@ -84,6 +96,36 @@ class LinkList extends Component {
         })
     };
 
+    _getLinksToRender = isNewPage => {
+        const {feedQuery} = this.props;
+
+        if (isNewPage) {
+            return feedQuery.feed.links
+        }
+
+        return sortBy(feedQuery.feed.links, link => link.votes.length)
+    };
+
+    _nextPage = () => {
+        const {history, match, feedQuery} = this.props;
+
+        const page = parseInt(match.params.page);
+        if (page <= feedQuery.feed.count / LINKS_PER_PAGE) {
+            const nextPage = page + 1;
+            history.push(`/new/${nextPage}`);
+        }
+    };
+
+    _previousPage = () => {
+        const {history, match} = this.props;
+
+        const page = parseInt(match.params.page);
+        if (page > 1) {
+            const previousPage = page - 1;
+            history.push(`/new/${previousPage}`);
+        }
+    };
+
     render() {
         const {feedQuery} = this.props;
 
@@ -95,21 +137,36 @@ class LinkList extends Component {
             return <div>Error</div>;
         }
 
-        const linksToRender = feedQuery.feed.links;
+        const isNewPage = this.props.location.pathname.includes('new');
+        const linksToRender = this._getLinksToRender(isNewPage);
+        const page = parseInt(this.props.match.params.page);
 
         return (
             <div>
-                {linksToRender.map((link, index) => (
-                    <Link key={link.id} updateCacheAfterVote={this._updateCacheAfterVote} index={index} link={link} />
-                ))}
+                <div>
+                    {linksToRender.map((link, index) => (
+                        <Link
+                            key={link.id}
+                            updateCacheAfterVote={this._updateCacheAfterVote}
+                            index={index}
+                            link={link}
+                        />
+                    ))}
+                </div>
+                {isNewPage &&
+                    <div className='flex ml4 mv3 gray'>
+                        <div className='pointer mr2' onClick={() => this._previousPage()}>Previous</div>
+                        <div className='pointer' onClick={() => this._nextPage()}>Next</div>
+                    </div>
+                }
             </div>
         );
     }
 }
 
 export const FEED_QUERY = gql`
-    query FeedQuery {
-        feed {
+    query FeedQuery($first: Int, $skip: Int, $orderBy: LinkOrderByInput) {
+        feed(first: $first, skip: $skip, orderBy: $orderBy) {
             links {
                 id
                 createdAt
@@ -126,8 +183,21 @@ export const FEED_QUERY = gql`
                     }
                 }
             }
+            count
         }
     }
 `;
 
-export default graphql(FEED_QUERY, {name: 'feedQuery'})(LinkList);
+export default graphql(FEED_QUERY, {
+    name: 'feedQuery',
+    options: ({match, location}) => {
+        const page = parseInt(match.params.page);
+        const isNewPage = location.pathname.includes('new');
+        const skip = isNewPage ? (page - 1) * LINKS_PER_PAGE : 0;
+        const first = isNewPage ? LINKS_PER_PAGE : 100;
+        const orderBy = isNewPage ? 'createdAt_DESC' : null;
+        return {
+            variables: { first, skip, orderBy },
+        }
+    },
+})(LinkList);
