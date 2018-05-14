@@ -4,11 +4,84 @@ import gql from 'graphql-tag';
 import {graphql} from 'react-apollo';
 
 class LinkList extends Component {
+    componentDidMount() {
+        this._subscribeToNewLinks();
+        this._subscribeToNewVotes();
+    }
+
     _updateCacheAfterVote = (store, createVote, linkId) => {
         const data = store.readQuery({ query: FEED_QUERY });
         const votedLink = data.feed.links.find(link => link.id === linkId);
         votedLink.votes = createVote.link.votes;
         store.writeQuery({ query: FEED_QUERY, data });
+    };
+
+    _subscribeToNewLinks = () => {
+        this.props.feedQuery.subscribeToMore({
+            document: gql`
+                subscription {
+                    newLink {
+                        node {
+                            id
+                            url
+                            description
+                            createdAt
+                            postedBy {
+                                id
+                                name
+                            }
+                            votes {
+                                id
+                                user {
+                                    id
+                                }
+                            }
+                        }
+                    }
+                }
+            `,
+            updateQuery: (previous, { subscriptionData }) => {
+                return {
+                    ...previous,
+                    feed: {
+                        links: [subscriptionData.data.newLink.node, ...previous.feed.links]
+                    },
+                };
+            }
+        })
+    };
+
+    _subscribeToNewVotes = () => {
+        this.props.feedQuery.subscribeToMore({
+            document: gql`
+                subscription {
+                    newVote {
+                        node {
+                            id
+                            link {
+                                id
+                                url
+                                description
+                                createdAt
+                                postedBy {
+                                    id
+                                    name
+                                }
+                                votes {
+                                    id
+                                    user {
+                                        id
+                                    }
+                                }
+                            }
+                            user {
+                                id
+                            }
+                        }
+                    }
+                }
+            `,
+        })
     };
 
     render() {
